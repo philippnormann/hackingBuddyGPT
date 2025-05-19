@@ -1,11 +1,16 @@
 import re
 
-GOT_ROOT_REGEXPs = [re.compile("^# $"), re.compile("^bash-[0-9]+.[0-9]# $")]
+PLAIN_ROOT_RE   = re.compile(r"^# ?$")
+BASH_ROOT_RE    = re.compile(r"^bash-[0-9]+(\.[0-9]+)*# ?$")
+ROOT_AT_HOST_RE = re.compile(r"^root@[\w\-.]+:.*# ?$")
 
+def got_root(_: str, output: str) -> bool:
+    line = output.strip()
 
-def got_root(hostname: str, output: str) -> bool:
-    for i in GOT_ROOT_REGEXPs:
-        if i.fullmatch(output):
-            return True
-
-    return output.startswith(f"root@{hostname}:")
+    if PLAIN_ROOT_RE.match(line):
+        return True
+    if BASH_ROOT_RE.match(line):
+        return True
+    if ROOT_AT_HOST_RE.match(line):
+        return True
+    return False
