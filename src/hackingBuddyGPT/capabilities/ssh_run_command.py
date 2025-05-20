@@ -38,7 +38,16 @@ class SSHRunCommand(Capability):
         out = StringIO()
 
         try:
-            self.conn.run(command, pty=True, warn=True, out_stream=out, watchers=[sudo_pass], timeout=self.timeout)
+            timeout = self.timeout
+
+            # Check if the command contains "sleep" and adjust the timeout accordingly
+            if "sleep" in command:
+                sleep_time = re.search(r"\bsleep\s+(\d+)", command)
+                if sleep_time:
+                    sleep_time = int(sleep_time.group(1))
+                    timeout = sleep_time + 5
+            
+            self.conn.run(command, pty=True, warn=True, out_stream=out, watchers=[sudo_pass], timeout=timeout)
         except Exception:
             print("TIMEOUT! Could we have become root?")
         out.seek(0)
