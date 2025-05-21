@@ -73,32 +73,102 @@ def remove_wrapping_characters(cmd: str, wrappers: str) -> str:
     return cmd
 
 
-# often the LLM produces a wrapped command
-def cmd_output_fixer(cmd: str) -> str:
+def remove_think_block(text: str) -> str:
+    """
+    Remove <think> tags and their content from text.
+    Handles both properly closed tags and unclosed tags.
+
+    Args:
+        text: The input text that may contain think blocks
+
+    Returns:
+        Text with think blocks removed
+    """
+    if not text or len(text) < 2:
+        return text
+
+    # Remove properly closed think tags first
+    result = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+    # Handle closing tags without opening tags
+    result = re.sub(r".*?</think>", "", result, flags=re.DOTALL)
+
+    return result
+
+
+# extract the next command from the LLM output
+def cmd_output_fixer(cmd: str, capabilities=None, reasoning=False) -> str:
+    """
+    Extracts the command from the LLM output, removing unnecessary formatting and tags.
+
+    Args:
+        cmd: The command string to be processed.
+        capabilities: A list of capabilities to look for in the command.
+        reasoning: A boolean indicating if reasoning is enabled.
+
+    Returns:
+        The cleaned command string.
+    """
+    # Default capabilities if none provided
+    if capabilities is None:
+        capabilities = ["exec_command", "test_credential"]
+
     cmd = cmd.strip(" \n")
     if len(cmd) < 2:
         return cmd
 
-    stupidity = re.compile(r"^[ \n\r]*```.*\n(.*)\n```$", re.MULTILINE)
-    result = stupidity.search(cmd)
-    if result:
-        print("this would have been captured by the multi-line regex 1")
-        cmd = result.group(1)
-        print("new command: " + cmd)
-    stupidity = re.compile(r"^[ \n\r]*~~~.*\n(.*)\n~~~$", re.MULTILINE)
-    result = stupidity.search(cmd)
-    if result:
-        print("this would have been captured by the multi-line regex 2")
-        cmd = result.group(1)
-        print("new command: " + cmd)
-    stupidity = re.compile(r"^[ \n\r]*~~~.*\n(.*)\n~~~$", re.MULTILINE)
+    # Remove think tags and their content if reasoning is enabled
+    if reasoning:
+        cmd = remove_think_block(cmd)
 
-    cmd = remove_wrapping_characters(cmd, "`'\"")
+    # Extract commands from code fence blocks (```...```)
+    code_fence_pattern = re.compile(r"```.*?\n(.*?)\n```", re.DOTALL)
+    result = code_fence_pattern.search(cmd)
+    if result:
+        cmd = result.group(1)
 
+    # Extract commands from tilde fence blocks (~~~...~~~)
+    tilde_fence_pattern = re.compile(r"~~~.*?\n(.*?)\n~~~", re.DOTALL)
+    result = tilde_fence_pattern.search(cmd)
+    if result:
+        cmd = result.group(1)
+
+    # Handle boxed commands
+    boxed_pattern = re.compile(r"\\boxed{(.*?)}", re.DOTALL)
+    while re.search(boxed_pattern, cmd):
+        cmd = re.sub(boxed_pattern, r"\1", cmd)
+
+    # Extract bold commands (**...**)
+    bold_pattern = re.compile(r"\*\*(.*?)\*\*", re.DOTALL)
+    # Look for all bold sections and prioritize the one that contains our command patterns
+    if capabilities is not None:
+        command_prefixes = "|".join(re.escape(pattern) for pattern in capabilities)
+        for bold_match in bold_pattern.finditer(cmd):
+            bold_content = bold_match.group(1)
+            if re.search(f"({command_prefixes})\\s+", bold_content):
+                cmd = bold_content
+                break
+    else:
+        # Fall back to just using the first bold section if no capability matched
+        result = bold_pattern.search(cmd)
+        if result:
+            cmd = result.group(1)
+
+    # Remove shell prompt if present
     if cmd.startswith("$ "):
         cmd = cmd[2:]
 
-    return cmd
+    # Remove any remaining wrapping characters
+    cmd = remove_wrapping_characters(cmd, "`'\"")
+
+    # Build pattern for command detection based on provided command_patterns
+    pattern_str = "|".join(f"{pattern}\\s+.*" for pattern in capabilities)
+    cmd_pattern = re.compile(f"({pattern_str})")
+    result = cmd_pattern.search(cmd)
+    if result:
+        cmd = result.group(1)
+
+    return cmd.strip()
 
 
 # this is ugly, but basically we only have an approximation how many tokens

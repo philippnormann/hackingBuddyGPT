@@ -116,7 +116,7 @@ class TemplatedAgent(Agent):
         answer = self.llm.get_response(self._template, capabilities=self.get_capability_block(), **self._state.to_template())
         message_id = self.log.call_response(answer)
 
-        capability, cmd, result, got_root = self.run_capability_simple_text(message_id, llm_util.cmd_output_fixer(answer.result))
+        capability, cmd, result, got_root = self.run_capability_simple_text(message_id, llm_util.cmd_output_fixer(answer.result, capabilities=self._capabilities.keys()))
 
         self._state.update(capability, cmd, result)
 

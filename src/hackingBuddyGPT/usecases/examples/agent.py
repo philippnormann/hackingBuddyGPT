@@ -38,7 +38,7 @@ class ExPrivEscLinux(Agent):
         message_id = self.log.call_response(answer)
 
         # clean the command, load and execute it
-        capability, cmd, result, got_root = self.run_capability_simple_text(message_id, llm_util.cmd_output_fixer(answer.result))
+        capability, cmd, result, got_root = self.run_capability_simple_text(message_id, llm_util.cmd_output_fixer(answer.result, capabilities=self._capabilities.keys()))
 
         # store the results in our local history
         self._sliding_history.add_command(cmd, result)

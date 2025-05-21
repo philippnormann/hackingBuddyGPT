@@ -1,15 +1,16 @@
 import datetime
 import pathlib
 from dataclasses import dataclass, field
-from mako.template import Template
 from typing import Any, Dict, Optional
+
+from mako.template import Template
 
 from hackingBuddyGPT.capabilities import Capability
 from hackingBuddyGPT.capabilities.capability import capabilities_to_simple_text_handler
 from hackingBuddyGPT.usecases.agents import Agent
-from hackingBuddyGPT.utils.logging import log_section, log_conversation
 from hackingBuddyGPT.utils import llm_util
 from hackingBuddyGPT.utils.cli_history import SlidingCliHistory
+from hackingBuddyGPT.utils.logging import log_conversation, log_section
 
 template_dir = pathlib.Path(__file__).parent / "templates"
 template_next_cmd = Template(filename=str(template_dir / "query_next_command.txt"))
@@ -18,18 +19,25 @@ template_state = Template(filename=str(template_dir / "update_state.txt"))
 
 
 @dataclass
-class Privesc(Agent):
+class ReasoningPrivesc(Agent):
     system: str = ""
     enable_explanation: bool = False
     enable_update_state: bool = False
     disable_history: bool = False
     hint: str = ""
+    conn: Any = None  # Add this line to define the conn attribute
 
-    _sliding_history: SlidingCliHistory = None
+    _sliding_history: Optional[SlidingCliHistory] = None
     _state: str = ""
     _capabilities: Dict[str, Capability] = field(default_factory=dict)
     _template_params: Dict[str, Any] = field(default_factory=dict)
     _max_history_size: int = 0
+
+    def get_capability_block(self) -> str:
+        capability_descriptions, _parser = capabilities_to_simple_text_handler(self._capabilities)
+        return "You can use the following tools:\n\n" + "\n".join(
+            f"- {description}" for description in capability_descriptions.values()
+        )
 
     def before_run(self):
         if self.hint != "":
@@ -57,7 +65,7 @@ class Privesc(Agent):
 
         # log and output the command and its result
         if self._sliding_history:
-            self._sliding_history.add_command(cmd, result)
+            self._sliding_history.add_command(cmd, result if result is not None else "")
 
         # analyze the result..
         if self.enable_explanation:
@@ -82,31 +90,36 @@ class Privesc(Agent):
     @log_conversation("Asking LLM for a new command...", start_section=True)
     def get_next_command(self) -> tuple[str, int]:
         history = ""
-        if not self.disable_history:
+        if not self.disable_history and self._sliding_history:
             history = self._sliding_history.get_history(self._max_history_size - self.get_state_size())
 
         self._template_params.update({"history": history, "state": self._state})
 
         cmd = self.llm.get_response(template_next_cmd, **self._template_params)
         message_id = self.log.call_response(cmd)
-
-        return llm_util.cmd_output_fixer(cmd.result, capabilities=self._capabilities.keys()), message_id
+        return llm_util.cmd_output_fixer(cmd.result, capabilities=self._capabilities.keys(), reasoning=True), message_id
 
     @log_section("Executing that command...")
     def run_command(self, cmd, message_id) -> tuple[Optional[str], bool]:
-        _capability_descriptions, parser = capabilities_to_simple_text_handler(self._capabilities, default_capability=self._default_capability)
+        _capability_descriptions, parser = capabilities_to_simple_text_handler(
+            self._capabilities, default_capability=self._default_capability
+        )
         start_time = datetime.datetime.now()
         success, *output = parser(cmd)
         if not success:
-            self.log.add_tool_call(message_id, tool_call_id=0, function_name="", arguments=cmd, result_text=output[0], duration=0)
-            return output[0], False
+            self.log.add_tool_call(
+                message_id, tool_call_id=0, function_name="", arguments=cmd, result_text=str(output[0]), duration=0
+            )
+            return str(output[0]), False
 
         assert len(output) == 1
         capability, cmd, (result, got_root) = output[0]
         duration = datetime.datetime.now() - start_time
-        self.log.add_tool_call(message_id, tool_call_id=0, function_name=capability, arguments=cmd, result_text=result, duration=duration)
+        self.log.add_tool_call(
+            message_id, tool_call_id=0, function_name=capability, arguments=cmd, result_text=result, duration=duration
+        )
 
-        return result, got_root
+        return result, bool(got_root)
 
     @log_conversation("Analyze its result...", start_section=True)
     def analyze_result(self, cmd, result):
@@ -116,6 +129,7 @@ class Privesc(Agent):
         # ugly, but cut down result to fit context size
         result = llm_util.trim_result_front(self.llm, target_size, result)
         answer = self.llm.get_response(template_analyze, cmd=cmd, resp=result, facts=self._state)
+        answer.result = llm_util.remove_think_block(answer.result)
         self.log.call_response(answer)
 
     @log_conversation("Updating fact list..", start_section=True)
@@ -128,5 +142,6 @@ class Privesc(Agent):
         result = llm_util.trim_result_front(self.llm, target_size, result)
 
         state = self.llm.get_response(template_state, cmd=cmd, resp=result, facts=self._state)
+        state.result = llm_util.remove_think_block(state.result)
         self._state = state.result
         self.log.call_response(state)
