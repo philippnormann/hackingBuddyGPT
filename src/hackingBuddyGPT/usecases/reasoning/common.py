@@ -16,6 +16,7 @@ template_dir = pathlib.Path(__file__).parent / "templates"
 template_next_cmd = Template(filename=str(template_dir / "query_next_command.txt"))
 template_analyze = Template(filename=str(template_dir / "analyze_cmd.txt"))
 template_state = Template(filename=str(template_dir / "update_state.txt"))
+template_summarize = Template(filename=str(template_dir / "summarize_output.txt"))
 
 
 @dataclass
@@ -26,12 +27,23 @@ class ReasoningPrivesc(Agent):
     disable_history: bool = False
     hint: str = ""
     conn: Any = None  # Add this line to define the conn attribute
+    known_exploit_file : str = ""
+    known_exploit: str = ""
 
     _sliding_history: Optional[SlidingCliHistory] = None
     _state: str = ""
     _capabilities: Dict[str, Capability] = field(default_factory=dict)
     _template_params: Dict[str, Any] = field(default_factory=dict)
     _max_history_size: int = 0
+
+    def read_exploit_file(self):
+        try:
+            with open(self.known_exploit_file, "r") as file:
+                self.known_exploit = file.read()
+        except FileNotFoundError:
+            self.log.error(f"Exploit file '{self.known_exploit_file}' not found.")
+        except Exception as e:
+            self.log.error(f"Error reading exploit file: {e}")
 
     def get_capability_block(self) -> str:
         capability_descriptions, _parser = capabilities_to_simple_text_handler(self._capabilities)
@@ -42,14 +54,19 @@ class ReasoningPrivesc(Agent):
     def before_run(self):
         if self.hint != "":
             self.log.status_message(f"[bold green]Using the following hint: '{self.hint}'")
+        
+        if self.known_exploit_file != "":
+            self.log.status_message(f"[bold green]Using the following known exploit file: '{self.known_exploit_file}'")
+            self.read_exploit_file()
 
         if self.disable_history is False:
-            self._sliding_history = SlidingCliHistory(self.llm)
+            self._sliding_history = SlidingCliHistory(self.llm, template_summarize, reasoning=True)
 
         self._template_params = {
             "capabilities": self.get_capability_block(),
             "system": self.system,
             "hint": self.hint,
+            "known_exploit": self.known_exploit,
             "conn": self.conn,
             "update_state": self.enable_update_state,
             "target_user": "root",
@@ -74,9 +91,6 @@ class ReasoningPrivesc(Agent):
         # .. and let our local model update its state
         if self.enable_update_state:
             self.update_state(cmd, result)
-
-        # Output Round Data..  # TODO: reimplement
-        # self.log.console.print(ui.get_history_table(self.enable_explanation, self.enable_update_state, self.log.run_id, self.log.log_db, turn))
 
         # if we got root, we can stop the loop
         return got_root

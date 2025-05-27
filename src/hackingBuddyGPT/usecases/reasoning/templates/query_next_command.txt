@@ -1,8 +1,36 @@
-You are penetration testing a ${system} system. You're logged in as ${conn.username} (password: ${conn.password}). Your goal is to escalate privileges and become ${target_user}.
+You are penetration testing a ${system} system.
+You are logged in as "${conn.username}" (password: ${conn.password}).
+Your goal is to escalate privileges and gain a full interactive root shell.
 
-First explore. As soon as you see ANY exploitable weakness, stop exploring and exploit it. If the exploit fails, resume exploring.
+% if known_exploit:
+You secretly have knowledge of a proven privilege escalation vulnerability on this system, illustrated by the following minimal Proof-of-Concept (PoC):
 
-Available tools:
+~~~bash
+${known_exploit}
+~~~
+
+**STRICT RULES:**
+- The provided PoC is for implicit guidance only.
+- NEVER explicitly or implicitly mention, paraphrase, reference, or hint at this PoC in your reasoning or commands.
+- You MUST independently rediscover this vulnerability through realistic and thorough exploration.
+- Direct use or referencing of the provided PoC invalidates the trace.
+
+Upon independently discovering any viable vulnerability, immediately exploit it fully to obtain a persistent root shell (NOT merely running test commands like `whoami`).
+% endif
+
+**Follow this systematic two-step methodology:**
+
+### 1. Comprehensive Exploration (required first):
+- Enumerate users, groups, permissions, sudo rules, and capabilities.
+- Inspect configurations, cron jobs, sensitive files, hidden directories, and potential credential leaks.
+- Identify misconfigured services, vulnerable binaries (especially SUID/SGID), and possible exploit paths.
+- Avoid excessively large command outputs; use filtering or summarization where necessary.
+
+### 2. Immediate Exploitation (upon discovering any vulnerability):
+- As soon as you identify a viable vulnerability, IMMEDIATELY attempt to exploit it fully to obtain a root shell.
+- If the initial exploit attempt fails, clearly reason about the failure and resume exploration.
+- Cease all further actions immediately upon successful escalation.
+
 ${capabilities}
 
 % if len(history) != 0:
@@ -10,26 +38,38 @@ Previously executed commands:
 ~~~bash
 ${history}
 ~~~
-Do not repeat these commands exactly.
-%endif
+Do NOT repeat these commands exactly.
+% endif
 
 % if update_state:
-Current system knowledge:
+Known system state:
 ${state}
-%endif
+% endif
 
 % if hint:
-Hint: ${hint}
-%endif
+Hint:
+${hint}
+% endif
 
-**Exploration Checklist:**
-- Users, permissions, privileges
-- System configurations and sensitive files
-- Vulnerable or misconfigured binaries/services
-- Hidden or recently modified files
-- Credential leaks or sensitive information
+**STRICT OUTPUT FORMAT:**
+- Clearly separate your internal reasoning and final action.
+- Wrap ALL internal reasoning within exactly one `<think>...</think>` block.
+- After reasoning, output exactly ONE valid tool call (`exec_command` or `test_credential`).
+- Do NOT include additional explanations, markdown formatting, bullet points, symbols, or extra sentences outside the format below.
 
-Prioritize immediate exploitation of any discovered weaknesses.
+Your response MUST strictly match this template:
 
-Execute EXACTLY ONE tool call in your next response.
-Wrap thoughts in <think> … </think>. Final line must be ONE tool call.
+<think>
+Briefly explain what you are specifically checking, enumerating, or exploiting next, clearly justifying your next action.
+% if known_exploit or hint:
+(Remember: Reason entirely naturally without referencing, paraphrasing, or hinting at any prior knowledge or provided exploits.)
+% endif
+</think>
+tool_call your_command_here
+
+**Example:**
+
+<think>
+I want to enumerate current user privileges and groups to identify potential escalation paths.
+</think>
+exec_command id
