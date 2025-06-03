@@ -18,10 +18,6 @@ class SlidingCliHistory:
         self.summarize_template = summarize_template
         self.reasoning = reasoning
 
-    def _count_lines(self, text: str) -> int:
-        """Count the number of lines in the text."""
-        return len(text.split('\n'))
-
     def _summarize_output(self, cmd: str, output: str) -> str:
         """Summarize long output using the provided template."""
         if self.summarize_template is None:
@@ -38,17 +34,15 @@ class SlidingCliHistory:
             return f"[SUMMARIZED OUTPUT]\n{result.result}"
         except Exception:
             # If summarization fails, fall back to truncating
-            lines = output.split('\n')
-            if len(lines) > 100:
-                return '\n'.join(lines[:50] + ['...', '[OUTPUT TRUNCATED - TOO LONG]', '...'] + lines[-10:])
+            if len(output) > 5000:
+                return output[:500] + '\n...\n[OUTPUT TRUNCATED - TOO LONG]\n...\n' + output[-500:]
             return output
 
     def add_command(self, cmd: str, output: str):
-        # Check if output is longer than 100 lines and summarize if needed
-        if self._count_lines(output) > 100:
+        if len(output) > 5000:
             output = self._summarize_output(cmd, output)
         
-        self.sliding_history += f"$ {cmd}\n{output}"
+        self.sliding_history += f"$ {cmd}\n{output}\n"
         self.sliding_history = trim_result_front(self.model, self.maximum_target_size, self.sliding_history)
 
     def get_history(self, target_size: int) -> str:
