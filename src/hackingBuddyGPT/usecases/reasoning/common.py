@@ -120,6 +120,8 @@ class ReasoningPrivesc(Agent):
         )
         start_time = datetime.datetime.now()
         success, *output = parser(cmd)
+        capability, cmd, (result, got_root) = output[0]
+        result = llm_util.remove_nonprintable(result)
         if not success:
             self.log.add_tool_call(
                 message_id, tool_call_id=0, function_name="", arguments=cmd, result_text=str(output[0]), duration=0
@@ -127,7 +129,6 @@ class ReasoningPrivesc(Agent):
             return str(output[0]), False
 
         assert len(output) == 1
-        capability, cmd, (result, got_root) = output[0]
         duration = datetime.datetime.now() - start_time
         self.log.add_tool_call(
             message_id, tool_call_id=0, function_name=capability, arguments=cmd, result_text=result, duration=duration

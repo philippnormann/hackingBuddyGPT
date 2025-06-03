@@ -63,6 +63,24 @@ def tool_message(content: str, tool_call_id: str) -> ChatCompletionToolMessagePa
 def function_message(content: str, name: str) -> ChatCompletionFunctionMessageParam:
     return {"role": "function", "content": content, "name": name}
 
+def remove_nonprintable(text: str) -> str:
+    """
+    Remove non-printable characters from the text, including ANSI escape sequences.
+    This is useful to clean up command outputs that may contain control characters
+    and terminal color codes.
+
+    Args:
+        text: The input text to be cleaned.
+
+    Returns:
+        Cleaned text with ANSI escape sequences and non-printable characters removed.
+    """
+    # First remove ANSI escape sequences (ESC followed by [ and parameters)
+    ansi_escape = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
+    text = ansi_escape.sub('', text)
+    
+    # Then remove other non-printable characters
+    return ''.join(c for c in text if c.isprintable() or c.isspace())
 
 def remove_wrapping_characters(cmd: str, wrappers: str) -> str:
     if len(cmd) < 2:
@@ -163,7 +181,7 @@ def cmd_output_fixer(cmd: str, capabilities=None, reasoning=False) -> str:
 
     # Build pattern for command detection based on provided command_patterns
     pattern_str = "|".join(f"{pattern}\\s+.*" for pattern in capabilities)
-    cmd_pattern = re.compile(f"({pattern_str})")
+    cmd_pattern = re.compile(f"({pattern_str})", re.DOTALL)
     result = cmd_pattern.search(cmd)
     if result:
         cmd = result.group(1)

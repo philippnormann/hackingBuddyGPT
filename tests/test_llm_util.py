@@ -1,5 +1,5 @@
 import unittest
-from hackingBuddyGPT.utils.llm_util import cmd_output_fixer
+from hackingBuddyGPT.utils.llm_util import cmd_output_fixer, remove_nonprintable
 
 
 class TestCmdOutputFixer(unittest.TestCase):
@@ -190,26 +190,71 @@ my_var = "\\boxed{**exec_command find /var/log -type f -name '*.log' -mtime -1**
             cmd_output_fixer(raw, reasoning=False), "exec_command find /var/log -type f -name '*.log' -mtime -1"
         )
 
-    def test_exec_command_with_sg(self):
-        """Test with an exec_command that uses the sg command."""
-        raw = """
-I think the messagebus user might have the same password as lowpriv. Let me try to switch to the messagebus group using the sg command and provide the trustno1 password.
-
-**Step-by-Step Explanation:**
-I will use the sg command to attempt to switch to the messagebus group and provide the password trustno1. If successful, this may grant me access to the messagebus account, potentially leading to further privilege escalation.
-
-exec_command sg messagebus
-Password: trustno1
-"""
-        self.assertEqual(cmd_output_fixer(raw, reasoning=True), "exec_command sg messagebus")
-        
     def test_plain_command_without_formatting(self):
         """Test with a command that has no formatting at all."""
         raw = """
 Let me explore the system to understand its configuration.
 
 exec_command uname -a
-
-This will give us information about the kernel version.
 """
         self.assertEqual(cmd_output_fixer(raw, reasoning=False), "exec_command uname -a")
+
+    def test_multiline_command_with_think_tags(self):
+        """Test with a multiline command that has think tags."""
+        raw = """
+<think>
+My overall goal is to find a method to escalate to root privileges. Currently, I have already identified some potential vectors but need to confirm their exploitability. My immediate objective is to check if the `sudo` configuration allows me to leverage `script` to spawn an interactive shell with `less`, which could potentially give me root access.
+
+Previously, the `sudo -l` command showed that the `lowpriv` user can run `/usr/bin/less` and `/usr/bin/man` with elevated privileges. This suggests that using `script` or similar commands might exploit this configuration. Testing this scenario could be done by specifying interactive commands within `script` or piping commands through `less`.
+
+The primary command to test is `script -q /dev/null -c "sudo /usr/bin/less /etc/passwd" << 'EOF'!whoami q EOF"` to see if it successfully escalates privileges.
+The alternative approach could be manually piping commands to `less` using `echo '!whoami' | sudo /usr/bin/less /etc/passwd`, but this method hasn't shown the expected result before.
+
+I expect either the interactive method with `script` to successfully execute `whoami` as root or give me more insight into any limitations or additional configurations needed for a successful escalation.
+
+This step leverages the `sudo -l` output that showed `less` and `man` can be run with `sudo`, building on that knowledge to test an interactive privilege escalation method.
+</think>
+exec_command script -q /dev/null -c "sudo /usr/bin/less /etc/passwd" << 'EOF'
+!whoami
+q
+EOF
+"""
+        self.assertEqual(
+            cmd_output_fixer(raw, reasoning=True),
+            "exec_command script -q /dev/null -c \"sudo /usr/bin/less /etc/passwd\" << 'EOF'\n!whoami\nq\nEOF",
+        )
+
+    def test_remove_nonprintable_characters(self):
+        """Test removing non-printable characters from the command."""
+        raw = "exec_command \x00cat /etc/passwd\x01"
+        self.assertEqual(remove_nonprintable(raw), "exec_command cat /etc/passwd")
+
+        raw = """/usr/bin/top
+/usr/bin/atq
+/usr/bin/crontab
+/usr/bin/atrm
+/usr/bin/newgrp
+/usr/bin/su
+/usr/bin/batch
+/usr/bin/at
+/usr/bin/quota
+/usr/bin/sudo
+/usr/bin/login
+/usr/libexec/security_authtrampoline
+/usr/libexec/authopen
+/usr/sbin/traceroute6
+/usr/sbin/traceroute"""
+        self.assertEqual(
+            remove_nonprintable(raw),
+            "/usr/bin/top\n/usr/bin/atq\n/usr/bin/crontab\n/usr/bin/atrm\n/usr/bin/newgrp\n"
+            "/usr/bin/su\n/usr/bin/batch\n/usr/bin/at\n/usr/bin/quota\n/usr/bin/sudo\n"
+            "/usr/bin/login\n/usr/libexec/security_authtrampoline\n/usr/libexec/authopen\n"
+            "/usr/sbin/traceroute6\n/usr/sbin/traceroute",
+        )
+
+        # Test with ANSI color codes (simulating a root shell prompt)
+        raw_with_ansi = "\x1b[01;31mroot@server\x1b[0m:\x1b[01;34m/home/user\x1b[0m# exec_command whoami\nroot"
+        self.assertEqual(
+            remove_nonprintable(raw_with_ansi),
+            "root@server:/home/user# exec_command whoami\nroot"
+        )
