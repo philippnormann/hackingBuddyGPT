@@ -14,14 +14,13 @@
 #
 # Optional flags (all have sensible defaults)
 #   -u USER        SSH user on benchmark host        (default: root)
-#   -m MODEL       HF model name                     (default: deepseek-ai/DeepSeek-R1-14B)
+#   -m MODEL       LLM model name                    (default: hf.co/unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF:Q4_K_M)
 #   -t TEMPLATE    Wintermute template               (default: ReasoningLinuxPrivesc)
 #   -p PROB        Hint probability 0-100            (default: 30)
 #   -e PROB        Exploit probability 0-100         (default: 40)
 #   -o OUTDIR      Directory to save logs            (default: <repo>/logs)
 #   -U URL         LLM API base-URL                  (default: http://localhost:11434)
 #   -a KEY         LLM API key                       (default: none)
-#   -T TEMP        Temperature for LLM responses     (default: 1.0)
 #
 # Each trace run:
 #   0. ⏳  build.sh  – ensure images up-to-date   (once)
@@ -37,14 +36,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WINTERMUTE_PY="$REPO_ROOT/src/hackingBuddyGPT/cli/wintermute.py"
 
-# Parse positional arguments first
-SCEN="${1:-}"  HOST="${2:-}"  RUNS="${3:-}"
-[[ -z $SCEN || -z $HOST || -z $RUNS ]] && {
-  echo "Usage: $0 <scenario> <benchmark_host> <runs> [options]"; exit 1; }
-
-# Shift past the positional arguments
-shift 3
-
 # defaults
 USER="root"
 MODEL="hf.co/unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF:Q4_K_M"
@@ -54,8 +45,39 @@ EXPLOIT_PROB=40
 OUTDIR="$REPO_ROOT/logs"
 API_KEY=""
 API_URL="http://localhost:11434"
+TEMPERATURE=1.0 # Added default for temperature
 
-while getopts "u:m:t:p:e:o:a:U:T:" opt; do
+usage() {
+    echo "Usage: $0 <scenario> <benchmark_host> <runs> [options]"
+    echo ""
+    echo "Positional arguments:"
+    echo "  scenario         Scenario folder, e.g. 05_vuln_sudo_gtfo"
+    echo "  benchmark_host   IP / DNS of the machine running the benchmark containers"
+    echo "  runs             Number of traces to collect"
+    echo ""
+    echo "Optional flags:"
+    echo "  -u USER        SSH user on benchmark host        (default: ${USER})"
+    echo "  -m MODEL       LLM model name                    (default: ${MODEL})"
+    echo "  -t TEMPLATE    Wintermute template               (default: ${TEMPLATE})"
+    echo "  -p PROB        Hint probability 0-100            (default: ${HINT_PROB})"
+    echo "  -e PROB        Exploit probability 0-100         (default: ${EXPLOIT_PROB})"
+    echo "  -o OUTDIR      Directory to save logs            (default: ${OUTDIR})"
+    echo "  -U URL         LLM API base-URL                  (default: ${API_URL})"
+    echo "  -a KEY         LLM API key                       (default: none)"
+    exit 1
+}
+
+# Parse positional arguments first
+SCEN="${1:-}"  HOST="${2:-}"  RUNS="${3:-}"
+if [[ -z $SCEN || -z $HOST || -z $RUNS ]]; then
+  usage
+fi
+
+# Shift past the positional arguments
+shift 3
+
+# Parse optional flags
+while getopts ":u:m:t:p:e:o:a:U:T:" opt; do
   case "$opt" in
     u) USER="$OPTARG" ;;
     m) MODEL="$OPTARG" ;;
@@ -65,7 +87,15 @@ while getopts "u:m:t:p:e:o:a:U:T:" opt; do
     o) OUTDIR="$OPTARG" ;;
     a) API_KEY="$OPTARG" ;;
     U) API_URL="$OPTARG" ;;
-    *) exit 1 ;;
+    T) TEMPERATURE="$OPTARG" ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      usage
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      usage
+      ;;
   esac
 done
 
@@ -155,12 +185,6 @@ for ((i=1;i<=RUNS;i++)); do
   "${cmd[@]}" | tee "$OUTDIR/${SCEN}_${TIMESTAMP}.log"
   echo "   ✅  Trace $i saved to ${SCEN}_${TIMESTAMP}.log"
 done
-
-# Cleanup downloaded exploit file
-if [[ -n "$EXPLOIT_FILE" && -f "$EXPLOIT_FILE" ]]; then
-  rm -f "$EXPLOIT_FILE"
-  echo "🗑️  Cleaned up exploit file."
-fi
 
 echo "🛑  Stopping container …"
 $SSH "cd $REMOTE_DIR && ./stop.sh $SCEN" >/dev/null || true
