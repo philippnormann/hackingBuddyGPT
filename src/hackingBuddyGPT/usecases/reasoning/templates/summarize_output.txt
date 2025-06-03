@@ -1,16 +1,12 @@
-You are assisting with a Linux privilege escalation task.
+You are assisting in a Linux privilege escalation task.
 
-The following command produced a long output. Summarize it by extracting only lines or entries that could help escalate privileges.
+The following command returned a long output. Extract only the lines or entries that could help identify or exploit privilege escalation vectors.
 
-Include:
-- Hidden or sensitive files (e.g., .bash_history, id_rsa, credentials, backups)
-- SUID/SGID binaries, world-writable or misconfigured permissions
-- Suspicious cron jobs, sudo rights, users, services, or scripts
-- Any file, path, or permission that looks exploitable
-
-Output the result in a style similar to terminal output (e.g., as filtered `ls -la` or `find` results).  
-Avoid rephrasing unless it helps condense repetitive patterns.  
-Do not include explanations — just the relevant lines or summaries that look like raw output.
+Instructions:
+	•	Mimic the raw output format.
+	•	Do not add any extra formatting, markdown, or explanation.
+	•	Rephrase only to condense clearly repetitive patterns (e.g., multiple identical lines).
+	•	The result should feel like filtered raw terminal output.
 
 Command:
 ${command}

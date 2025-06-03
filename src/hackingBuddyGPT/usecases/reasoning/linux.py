@@ -7,7 +7,7 @@ from .common import ReasoningPrivesc
 
 class ReasoningLinuxPrivesc(ReasoningPrivesc):
     conn: SSHConnection = None
-    system: str = "linux"
+    system: str = "Linux"
 
     def init(self):
         super().init()
