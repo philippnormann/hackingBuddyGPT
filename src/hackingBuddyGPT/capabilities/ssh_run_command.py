@@ -47,6 +47,9 @@ class SSHRunCommand(Capability):
                     sleep_time = int(sleep_time.group(1))
                     timeout = sleep_time + 5
             
+            # avoids terminal control codes that can break the output
+            command = "TERM=dumb " + command
+
             self.conn.run(command, pty=True, warn=True, out_stream=out, watchers=[sudo_pass], timeout=timeout)
         except Exception:
             print("TIMEOUT! Could we have become root?")
