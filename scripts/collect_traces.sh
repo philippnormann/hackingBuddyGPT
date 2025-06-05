@@ -46,7 +46,8 @@ OUTDIR="$REPO_ROOT/logs"
 API_KEY=""
 API_URL="http://localhost:11434"
 TEMPERATURE=1.0 # Added default for temperature
-
+LOCAL_MODE=false  # if true, run directly on benchmark host without SSH
+ 
 usage() {
     echo "Usage: $0 <scenario> <benchmark_host> <runs> [options]"
     echo ""
@@ -77,7 +78,7 @@ fi
 shift 3
 
 # Parse optional flags
-while getopts ":u:m:t:p:e:o:a:U:T:" opt; do
+while getopts ":u:m:t:p:e:o:a:U:T" opt; do
   case "$opt" in
     u) USER="$OPTARG" ;;
     m) MODEL="$OPTARG" ;;
@@ -87,7 +88,6 @@ while getopts ":u:m:t:p:e:o:a:U:T:" opt; do
     o) OUTDIR="$OPTARG" ;;
     a) API_KEY="$OPTARG" ;;
     U) API_URL="$OPTARG" ;;
-    T) TEMPERATURE="$OPTARG" ;;
     \?)
       echo "Invalid option: -$OPTARG" >&2
       usage
@@ -98,6 +98,12 @@ while getopts ":u:m:t:p:e:o:a:U:T:" opt; do
       ;;
   esac
 done
+
+# auto-enable local mode for local hosts
+if [[ "$HOST" == "localhost" || "$HOST" == "127.0.0.1" ]]; then
+  LOCAL_MODE=true
+  USER=$(whoami)  # use current user for local runs
+fi
 
 echo "Collecting traces with the following settings:"
 echo "  Scenario: $SCEN"
@@ -113,29 +119,43 @@ echo "  API URL: $API_URL"
 echo "  API Key: ${API_KEY:-<not set>}"
 
 PORT=$((5000 + 10#${SCEN%%_*}))
-SSH="ssh ${USER}@${HOST}"
-REMOTE_DIR="/root/code/benchmark-privesc-linux/docker"
+HOME_DIR=$(eval echo "~$USER")  # resolve home directory for the user
+REMOTE_DIR="$HOME/code/benchmark-privesc-linux/docker"
+
+ 
+# helper to run commands locally or via SSH
+run_remote() { if [ "$LOCAL_MODE" = true ]; then eval "$1"; else ssh ${USER}@${HOST} "$1"; fi }
 
 mkdir -p "$OUTDIR"
 
-echo "⏳  Building Docker images on $HOST …"
-$SSH "cd $REMOTE_DIR && ./build.sh" >/dev/null
+echo "⏳  Building Docker images${LOCAL_MODE:+ locally} on $HOST …"
+run_remote "cd $REMOTE_DIR && ./build.sh" >/dev/null
 echo "   ✅  Images built."
 
-HINT=$($SSH "jq -r '.[\"$SCEN\"] // empty' $REMOTE_DIR/hints.json" || true)
+HINT=$(run_remote "jq -r '.[\"$SCEN\"] // empty' $REMOTE_DIR/hints.json" || true)
 
 # Download exploit file if available
-EXPLOIT_FILE=""
-mkdir -p "$OUTDIR/exploits"
-if $SSH "[ -f $REMOTE_DIR/tests/$SCEN.sh ]"; then
+if run_remote "[ -f $REMOTE_DIR/tests/$SCEN.sh ]"; then
   EXPLOIT_FILE="$OUTDIR/exploits/${SCEN}.sh"
   echo "⏳  Downloading exploit file..."
-  if scp "${USER}@${HOST}:$REMOTE_DIR/tests/$SCEN.sh" "$EXPLOIT_FILE" 2>/dev/null && [[ -s "$EXPLOIT_FILE" ]]; then
-    echo "✅  Exploit file downloaded."
+  if [ "$LOCAL_MODE" = true ]; then
+    cp "$REMOTE_DIR/tests/$SCEN.sh" "$EXPLOIT_FILE" 2>/dev/null
+    if [[ -s "$EXPLOIT_FILE" ]]; then
+      echo "✅  Exploit file downloaded."
+    else
+      rm -f "$EXPLOIT_FILE"
+      EXPLOIT_FILE=""
+      echo "⚠️  Failed to copy exploit file locally."
+    fi
   else
-    rm -f "$EXPLOIT_FILE"
-    EXPLOIT_FILE=""
-    echo "⚠️  Failed to download exploit file."
+    scp "${USER}@${HOST}:$REMOTE_DIR/tests/$SCEN.sh" "$EXPLOIT_FILE" 2>/dev/null
+    if [[ -s "$EXPLOIT_FILE" ]]; then
+      echo "✅  Exploit file downloaded."
+    else
+      rm -f "$EXPLOIT_FILE"
+      EXPLOIT_FILE=""
+      echo "⚠️  Failed to download exploit file via scp."
+    fi
   fi
 else
   echo "ℹ️  No exploit file available for scenario $SCEN."
@@ -144,7 +164,7 @@ fi
 for ((i=1;i<=RUNS;i++)); do
   echo "──────── Trace $i / $RUNS – $SCEN (port $PORT) ────────"
 
-  $SSH "cd $REMOTE_DIR && ./start.sh $SCEN" >/dev/null
+  run_remote "cd $REMOTE_DIR && ./start.sh $SCEN" >/dev/null
   echo "🚀  Container ready."
 
   pass_hint=""
@@ -187,5 +207,5 @@ for ((i=1;i<=RUNS;i++)); do
 done
 
 echo "🛑  Stopping container …"
-$SSH "cd $REMOTE_DIR && ./stop.sh $SCEN" >/dev/null || true
+run_remote "cd $REMOTE_DIR && ./stop.sh $SCEN" >/dev/null || true
 echo "🏁  Done — logs in '$OUTDIR/'"
