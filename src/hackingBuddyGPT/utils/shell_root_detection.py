@@ -1,7 +1,7 @@
 import re
 
 PLAIN_ROOT_RE   = re.compile(r"^# ?$")
-BASH_ROOT_RE    = re.compile(r"^bash-[0-9]+(\.[0-9]+)*# ?$")
+BASH_ROOT_RE    = re.compile(r"^[a-zA-Z]+-[0-9]+(\.[0-9]+)*# ?$")
 ROOT_AT_HOST_RE = re.compile(r"^root@[\w\-.]+:.*# ?$")
 PROMPT_RE      = re.compile(r".*[$#] ?$")
 

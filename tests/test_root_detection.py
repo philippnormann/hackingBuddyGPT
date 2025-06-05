@@ -16,6 +16,7 @@ def test_got_root():
     assert got_root(hostname, "bash-3.2.57#") is True    # Different version
     assert got_root(hostname, "bash-4.4.20#") is True    # Different version
     assert got_root(hostname, "bash-5.2# ") is True      # With space
+    assert got_root(hostname, "rootbash-5.2# ") is True  # With different bash binary name
     
     # Full prompts with hostname and path
     assert got_root(hostname, "root@56421866fc31:/home/lowpriv#") is True
